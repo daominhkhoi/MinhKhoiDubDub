@@ -28,7 +28,14 @@ del model  # giải phóng VRAM trước khi nạp model căn chỉnh
 gc.collect()
 
 t0 = time.time()
-align_model, meta = whisperx.load_align_model(language_code=lang, device="cuda")
+for attempt in range(3):  # model căn chỉnh tải từ download.pytorch.org, hay bị ngắt kết nối giữa chừng
+    try:
+        align_model, meta = whisperx.load_align_model(language_code=lang, device="cuda")
+        break
+    except OSError:  # URLError, ConnectionResetError đều là OSError
+        if attempt == 2:
+            raise
+        time.sleep(10)
 res = whisperx.align(res["segments"], align_model, meta, audio, "cuda", return_char_alignments=False)
 t["align_s"] = round(time.time() - t0, 1)
 
