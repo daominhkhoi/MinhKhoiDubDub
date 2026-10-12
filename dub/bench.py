@@ -49,13 +49,19 @@ def run_engine(engine, *args):
     th = threading.Thread(target=poll, daemon=True)
     th.start()
     t0 = time.time()
-    p = subprocess.run(["bash", str(ROOT / "engines/run.sh"), engine, *map(str, args)], capture_output=True, text=True)
+    cmd = ["bash", str(ROOT / "engines/run.sh"), engine, *map(str, args)]
+    p = subprocess.run(cmd, capture_output=True, text=True)
     wall = time.time() - t0
     stop.set()
     th.join()
+    # log đầy đủ lên Drive để Claude tự đọc, không cần copy từ notebook
+    log = DRIVE / "logs" / f"{engine}_{time.strftime('%Y%m%d_%H%M%S')}.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text(f"$ {' '.join(cmd)}\nexit {p.returncode}, {wall:.1f}s\n\n--- stdout ---\n{p.stdout}\n"
+                   f"--- stderr ---\n{p.stderr}", encoding="utf-8")
     if p.returncode:
-        print(p.stdout[-3000:], "\n--- stderr ---\n", p.stderr[-6000:])
-        raise RuntimeError(f"Engine {engine} lỗi (mã {p.returncode}). Gửi đoạn log phía trên cho Claude.")
+        print(p.stderr[-4000:])
+        raise RuntimeError(f"Engine {engine} lỗi (mã {p.returncode}). Log đầy đủ: {log}. Báo Claude đọc log.")
     return json.loads(p.stdout.strip().splitlines()[-1]), peak[0], round(wall, 1)
 
 
