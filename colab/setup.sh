@@ -5,12 +5,14 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 pip install -q uv edge-tts requests
 for e in "$@"; do
-  if [ -x "engines/$e/.venv/bin/python" ]; then
+  # chỉ bỏ qua khi lần cài trước chạy hết; cài dở (bị ngắt) thì làm lại từ đầu
+  if [ -f "engines/$e/.venv/.installed" ]; then
     echo "[$e] đã cài trong phiên này, bỏ qua"
     continue
   fi
   start=$SECONDS
-  uv venv -q --python 3.11 "engines/$e/.venv"
+  uv venv -q --clear --python 3.11 "engines/$e/.venv"
   uv pip install -q --python "engines/$e/.venv/bin/python" -r "engines/$e/requirements.txt"
+  touch "engines/$e/.venv/.installed"
   echo "[$e] cài xong sau $((SECONDS - start)) giây"
 done
