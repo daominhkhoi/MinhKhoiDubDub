@@ -5,3 +5,7 @@ __pycache__/
 jobs/
 models/
 engines/*/.venv/
+videoDemo/
+*.mp4
+*.mkv
+*.wav
