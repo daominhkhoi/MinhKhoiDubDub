@@ -250,8 +250,8 @@ Claude không chạy được Colab. Phần chạy với GPU luôn cần bạn b
 3. Benchmark trên 5 video SQL có sẵn và các clip tiếng Nhật, tiếng Trung, phim tiếng Anh mà bạn thêm vào `Drive/SuperDubDub/input`:
    - ASR: WER (tiếng Anh) và CER (tiếng Nhật, tiếng Trung), RTF, VRAM đỉnh.
    - Gemini: chất lượng dịch trên 50 câu, số request đã dùng so với hạn mức.
-   - TTS: bài nghe mù giữa viXTTS, F5-VN và edge-tts. Đo `voice_rate`.
-   - Tách nguồn: Demucs so với RoFormer.
+   - TTS: bài nghe mù giữa viXTTS và 2 giọng edge-tts. Đo `voice_rate`. F5-VN chỉ thêm vào nếu viXTTS bị chấm kém.
+   - Tách nguồn: dời sang Phase 2 (chỉ cần cho chế độ lồng tiếng, chế độ mặc định thuyết minh không dùng).
 4. Ghi kết quả vào `BENCHMARK.md`.
 
 **Tiêu chí hoàn thành:**

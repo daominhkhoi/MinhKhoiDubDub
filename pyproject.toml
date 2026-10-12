@@ -1,0 +1,13 @@
+[project]
+name = "superdubdub"
+version = "0.1.0"
+description = "Lồng tiếng và phụ đề video sang tiếng Việt, chạy trên Google Colab miễn phí"
+requires-python = ">=3.10"
+dependencies = ["requests"]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
