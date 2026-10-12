@@ -9,4 +9,6 @@ py="$here/$engine/.venv/bin/python"
 # ctranslate2/torch tìm cuDNN, cuBLAS trong các gói pip nvidia-* của venv, không phải trong hệ thống Colab
 libs="$("$py" -c 'import glob, os, site; print(":".join(p for sp in site.getsitepackages() for p in glob.glob(os.path.join(sp, "nvidia", "*", "lib"))))')"
 export LD_LIBRARY_PATH="${libs}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# Colab đặt MPLBACKEND trỏ tới matplotlib_inline, venv engine không có nên matplotlib lỗi khi import
+export MPLBACKEND=Agg
 exec "$py" "$here/$engine/run.py" "$@"
