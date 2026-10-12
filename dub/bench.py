@@ -1,4 +1,9 @@
-"""Benchmark Phase 0 trên Colab: ASR → dịch → nghe mù TTS. Kết quả lưu lên Drive."""
+"""Benchmark Phase 0 trên Kaggle: ASR → dịch → nghe mù TTS. Chạy không cần tương tác.
+
+python -m dub.bench --video "<tên file>" --lang en
+Kết quả (report.json, logs/, listen/) nằm trong OUT để tải về bằng `kaggle kernels output`.
+"""
+import argparse
 import json
 import os
 import random
@@ -7,19 +12,28 @@ import shutil
 import subprocess
 import threading
 import time
+import traceback
 from pathlib import Path
 
 from dub import llm, translate as tr
 
 ROOT = Path(__file__).resolve().parents[1]
-DRIVE = Path("/content/drive/MyDrive/SuperDubDub")
-WORK = Path("/content/work")
+INPUT = Path(os.environ.get("SDD_INPUT", "/kaggle/input"))
+OUT = Path(os.environ.get("SDD_OUT", "/kaggle/working"))
 EDGE_VOICES = {"edge_HoaiMy": "vi-VN-HoaiMyNeural", "edge_NamMinh": "vi-VN-NamMinhNeural"}
-RESULTS = {}  # gom số liệu của mọi bước, lưu bằng save_report()
+RESULTS = {}  # số liệu của mọi bước, ghi ra report.json
+
+
+def find_video(name):
+    """Kaggle gắn dataset ở /kaggle/input/<slug>/ (đường dẫn có thể đổi) nên tìm theo tên file."""
+    hits = list(INPUT.rglob(name))
+    if not hits:
+        raise FileNotFoundError(f"Không thấy '{name}' trong {INPUT}. Có: {sorted(p.name for p in INPUT.rglob('*.mp4'))}")
+    return hits[0]
 
 
 def job_dir(video):
-    d = WORK / re.sub(r"[^\w-]+", "_", Path(video).stem)
+    d = OUT / "work" / re.sub(r"[^\w-]+", "_", Path(video).stem)
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -54,87 +68,72 @@ def run_engine(engine, *args):
     wall = time.time() - t0
     stop.set()
     th.join()
-    # log đầy đủ lên Drive để Claude tự đọc, không cần copy từ notebook
-    log = DRIVE / "logs" / f"{engine}_{time.strftime('%Y%m%d_%H%M%S')}.log"
+    log = OUT / "logs" / f"{engine}_{time.strftime('%H%M%S')}.log"
     log.parent.mkdir(parents=True, exist_ok=True)
     log.write_text(f"$ {' '.join(cmd)}\nexit {p.returncode}, {wall:.1f}s\n\n--- stdout ---\n{p.stdout}\n"
                    f"--- stderr ---\n{p.stderr}", encoding="utf-8")
     if p.returncode:
         print(p.stderr[-4000:])
-        raise RuntimeError(f"Engine {engine} lỗi (mã {p.returncode}). Log đầy đủ: {log}. Báo Claude đọc log.")
+        raise RuntimeError(f"Engine {engine} lỗi (mã {p.returncode}), log: {log}")
     return json.loads(p.stdout.strip().splitlines()[-1]), peak[0], round(wall, 1)
 
 
-def asr(video, lang, minutes, model="large-v3"):
-    src = DRIVE / "input" / video
-    if not src.exists():
-        raise FileNotFoundError(f"Không thấy '{video}' trong Drive/SuperDubDub/input. "
-                                f"Các file có: {sorted(p.name for p in src.parent.iterdir())}")
+def asr(video, lang, minutes, model):
     d = job_dir(video)
     wav = d / "audio16k.wav"
-    ffmpeg("-i", src, "-t", minutes * 60, "-vn", "-ac", 1, "-ar", 16000, wav)
+    ffmpeg("-i", find_video(video), "-t", minutes * 60, "-vn", "-ac", 1, "-ar", 16000, wav)
     audio_s = duration(wav)
-    print(f"Đang nhận dạng {audio_s / 60:.1f} phút audio bằng {model} (lần đầu phải tải model)...")
+    print(f"ASR {audio_s / 60:.1f} phút audio bằng {model}...", flush=True)
     info, vram, wall = run_engine("asr", wav, d / "asr.json", "--lang", lang, "--model", model)
     segs = json.loads((d / "asr.json").read_text(encoding="utf-8"))["segments"]
     no_ts = sum(1 for s in segs for w in s["words"] if w["s"] is None)
-    total_w = sum(len(s["words"]) for s in segs)
-    RESULTS["asr"] = {"video": video, "model": model, "lang": info["language"], "audio_s": round(audio_s, 1),
-                      "wall_s": wall, "rtf": round(wall / audio_s, 3), "vram_peak_mb": vram,
-                      "segments": len(segs), "words_without_timestamp": f"{no_ts}/{total_w}", **info}
-    print(json.dumps(RESULTS["asr"], ensure_ascii=False, indent=1))
-    for s in segs[:8]:
-        print(f"[{s['start']:7.2f} → {s['end']:7.2f}] {s['text']}")
+    RESULTS["asr"] = {"video": video, "model": model, "audio_s": round(audio_s, 1), "wall_s": wall,
+                      "rtf": round(wall / audio_s, 3), "vram_peak_mb": vram,
+                      "words_without_timestamp": f"{no_ts}/{sum(len(s['words']) for s in segs)}", **info}
 
 
-def translate(video, n=50, voice_rate=5.0):
+def translate(video, n, voice_rate=5.0):
     d = job_dir(video)
     asr_json = json.loads((d / "asr.json").read_text(encoding="utf-8"))
     segs = asr_json["segments"][:n]
     calls0, t0 = llm.calls, time.time()
+    print(f"Dịch {len(segs)} câu bằng Gemini...", flush=True)
     ctx = tr.context_pass(segs, asr_json["language"])
     rows = tr.translate(segs, asr_json["language"], ctx, voice_rate=voice_rate)
+    for s, r in zip(segs, rows):
+        r["src"] = s["text"]
     over = [r for r in rows if tr.syllables(r["dub"]) > r["max_syll"]]
     (d / "translated.json").write_text(json.dumps({"context": ctx, "rows": rows}, ensure_ascii=False, indent=1),
                                        encoding="utf-8")
     RESULTS["translate"] = {"model": os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"), "segments": len(rows),
                             "requests": llm.calls - calls0, "wall_s": round(time.time() - t0, 1),
                             "over_budget": f"{len(over)}/{len(rows)}"}
-    print(json.dumps(RESULTS["translate"], ensure_ascii=False, indent=1))
-    print("\nNgữ cảnh:", ctx["summary"], "|", ctx["genre"], "|", ctx["register"])
-    for s, r in zip(segs, rows):
-        print(f"\n#{r['id']}  {s['text']}\n  SUB: {r['sub']}\n  DUB: {r['dub']}  ({tr.syllables(r['dub'])}/{r['max_syll']} âm tiết)")
 
 
 def _auto_ref(video, out):
     """Giọng mẫu = câu 6–12 giây đầu tiên của chính video (clone giọng người nói gốc)."""
     segs = json.loads((job_dir(video) / "asr.json").read_text(encoding="utf-8"))["segments"]
     pick = next((s for s in segs if 6 <= s["end"] - s["start"] <= 12), max(segs, key=lambda s: s["end"] - s["start"]))
-    ffmpeg("-ss", pick["start"], "-to", min(pick["end"], pick["start"] + 12), "-i", DRIVE / "input" / video,
+    ffmpeg("-ss", pick["start"], "-to", min(pick["end"], pick["start"] + 12), "-i", find_video(video),
            "-vn", "-ac", 1, "-ar", 22050, out)
     return out
 
 
-def tts(video, n=10, voice_ref=""):
-    """Tổng hợp n câu bằng viXTTS và 2 giọng edge-tts, gán nhãn ẩn danh để nghe mù."""
-    from IPython.display import Audio, display
-
+def tts(video, n):
+    """n câu × 3 giọng (viXTTS + 2 edge-tts). File nghe đặt tên theo nhãn ẩn danh X/Y/Z."""
     d = job_dir(video)
     rows = json.loads((d / "translated.json").read_text(encoding="utf-8"))["rows"]
-    # ưu tiên câu dài vừa (8–30 âm tiết): câu quá ngắn không đủ để chấm giọng
-    pool = [r for r in rows if 8 <= tr.syllables(r["dub"]) <= 30] or rows
-    picks = pool[:n]
-    out = d / "tts"
-    shutil.rmtree(out, ignore_errors=True)
-    out.mkdir()
+    # câu dài vừa (8–30 âm tiết): câu quá ngắn không đủ để chấm giọng
+    picks = ([r for r in rows if 8 <= tr.syllables(r["dub"]) <= 30] or rows)[:n]
+    raw = d / "tts"
+    shutil.rmtree(raw, ignore_errors=True)
+    raw.mkdir()
 
-    ref = Path(voice_ref) if voice_ref else _auto_ref(video, d / "ref.wav")
-    print("Giọng mẫu cho viXTTS:", ref)
-    display(Audio(str(ref)))
-    items = [{"id": r["id"], "text": r["dub"], "out": str(out / f"viXTTS_{r['id']}.wav")} for r in picks]
+    ref = _auto_ref(video, d / "ref.wav")
+    items = [{"id": r["id"], "text": r["dub"], "out": str(raw / f"viXTTS_{r['id']}.wav")} for r in picks]
     (d / "tts_items.json").write_text(json.dumps(items, ensure_ascii=False), encoding="utf-8")
-    print("Đang chạy viXTTS (lần đầu phải tải model ~2 GB)...")
-    info, vram, wall = run_engine("tts", d / "tts_items.json", ref)
+    print("viXTTS...", flush=True)
+    info, vram, _ = run_engine("tts", d / "tts_items.json", ref)
     stats = {"viXTTS": {"load_s": info["load_s"], "vram_peak_mb": vram,
                         "rtf": round(sum(i["synth_s"] for i in info["items"]) / sum(i["dur"] for i in info["items"]), 3)}}
 
@@ -142,34 +141,48 @@ def tts(video, n=10, voice_ref=""):
         t0 = time.time()
         for r in picks:
             subprocess.run(["edge-tts", "--voice", voice, "--text", r["dub"],
-                            "--write-media", str(out / f"{name}_{r['id']}.mp3")], check=True, capture_output=True)
+                            "--write-media", str(raw / f"{name}_{r['id']}.mp3")], check=True, capture_output=True)
         stats[name] = {"wall_s": round(time.time() - t0, 1)}
 
     syl = sum(tr.syllables(r["dub"]) for r in picks)
     for name in stats:
-        files = sorted(out.glob(f"{name}_*"))
-        stats[name]["voice_rate"] = round(syl / sum(duration(f) for f in files), 2)  # âm tiết/giây, cho budgets()
+        stats[name]["voice_rate"] = round(syl / sum(duration(f) for f in raw.glob(f"{name}_*")), 2)  # âm tiết/giây
 
-    labels = dict(zip(["Giọng X", "Giọng Y", "Giọng Z"], random.sample(list(stats), 3)))
-    RESULTS["tts"] = {"stats": stats, "blind_key": labels}
-    (d / "blind_key.json").write_text(json.dumps(labels), encoding="utf-8")
+    listen = OUT / "listen"
+    shutil.rmtree(listen, ignore_errors=True)
+    listen.mkdir()
+    shutil.copy(ref, listen / "0_giong_mau_goc.wav")
+    labels = dict(zip("XYZ", random.sample(list(stats), 3)))
     for label, name in labels.items():
-        print(f"\n===== {label} =====")
-        for r in picks:
-            print(r["dub"])
-            display(Audio(str(next(out.glob(f"{name}_{r['id']}.*")))))
-    print("\nNghe xong, chấm mỗi giọng 1–5 điểm rồi chạy ô tiếp theo để xem giọng nào là engine nào.")
+        for k, r in enumerate(picks, 1):
+            src = next(raw.glob(f"{name}_{r['id']}.*"))
+            shutil.copy(src, listen / f"{label}_{k:02d}{src.suffix}")
+    (listen / "cau.txt").write_text("\n".join(f"{k:02d}. {r['dub']}" for k, r in enumerate(picks, 1)), encoding="utf-8")
+    RESULTS["tts"] = {"stats": stats, "blind_key": labels}
 
 
-def reveal():
-    for label, name in RESULTS["tts"]["blind_key"].items():
-        print(f"{label} = {name}: {RESULTS['tts']['stats'][name]}")
+def main(argv=None):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--video", required=True)
+    ap.add_argument("--lang", default="en")
+    ap.add_argument("--minutes", type=float, default=5)
+    ap.add_argument("--model", default="large-v3")
+    ap.add_argument("--n-seg", type=int, default=50)
+    ap.add_argument("--n-tts", type=int, default=10)
+    a = ap.parse_args(argv)
+    steps = [("asr", lambda: asr(a.video, a.lang, a.minutes, a.model)),
+             ("translate", lambda: translate(a.video, a.n_seg)),
+             ("tts", lambda: tts(a.video, a.n_tts))]
+    for name, fn in steps:
+        try:
+            fn()
+        except Exception as e:  # bước sau cần kết quả bước trước nên dừng, nhưng vẫn ghi report
+            RESULTS[f"{name}_error"] = repr(e)
+            traceback.print_exc()
+            break
+    (OUT / "report.json").write_text(json.dumps(RESULTS, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(json.dumps(RESULTS, ensure_ascii=False, indent=1))
 
 
-def save_report():
-    dest = DRIVE / "bench"
-    dest.mkdir(parents=True, exist_ok=True)
-    path = dest / f"bench_{time.strftime('%Y%m%d_%H%M%S')}.json"
-    path.write_text(json.dumps(RESULTS, ensure_ascii=False, indent=1), encoding="utf-8")
-    print(f"Đã lưu {path}\nCopy nội dung dưới đây gửi cho Claude:\n")
-    print(json.dumps(RESULTS, ensure_ascii=False))
+if __name__ == "__main__":
+    main()

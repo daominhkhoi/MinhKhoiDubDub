@@ -9,3 +9,4 @@ videoDemo/
 *.mp4
 *.mkv
 *.wav
+out/

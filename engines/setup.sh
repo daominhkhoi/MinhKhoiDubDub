@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Cài môi trường trên Colab. Mỗi engine một venv Python 3.11 để không đụng torch có sẵn của Colab.
-# Cách dùng: colab/setup.sh asr tts
+# Cài môi trường trên Kaggle. Mỗi engine một venv Python 3.11 để không đụng torch có sẵn của image.
+# Cách dùng: engines/setup.sh asr tts
 set -euo pipefail
 cd "$(dirname "$0")/.."
+command -v ffmpeg >/dev/null || { apt-get -qq update && apt-get -qq install -y ffmpeg; }
 pip install -q uv edge-tts requests
 for e in "$@"; do
   # chỉ bỏ qua khi lần cài trước chạy hết; cài dở (bị ngắt) thì làm lại từ đầu
