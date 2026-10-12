@@ -277,7 +277,7 @@ mix        ~2 GB                  float32 mono 48k cho 60 phút ≈ 0.7 GB mỗi
 1. `git init`, tạo `.gitignore` (bỏ qua `jobs/`, `models/`, `.venv/`).
 2. Cài đặt (miễn phí): `winget install Gyan.FFmpeg`, `winget install astral-sh.uv`, `uv python install 3.11`.
 3. Đặt `HF_HOME=D:\superdubdub-data\models` **trong config của dự án** (không đặt biến môi trường toàn hệ thống, để không ảnh hưởng các dự án khác). Ollama giữ thư mục mặc định: nếu đổi `OLLAMA_MODELS` thì Ollama sẽ không thấy các model `smartparking-qwen*` hiện có.
-4. **Bộ test:** 6 clip × 3 phút gồm EN (talk), EN (phim), JA (anime), JA (vlog), ZH (drama), ZH (show). Gõ tay transcript chuẩn cho 1 phút mỗi clip để tính WER/CER.
+4. **Bộ test** (đặt trong `videoDemo/`, git đã bỏ qua thư mục này): 6 clip × 3 phút gồm EN (talk), EN (phim), JA (anime), JA (vlog), ZH (drama), ZH (show). Gõ tay transcript chuẩn cho 1 phút mỗi clip để tính WER/CER.
 5. Chạy benchmark ASR, LLM, TTS (bài nghe mù), tách nguồn. Đo thời gian xử lý so với độ dài clip (RTF) và RAM đỉnh.
 6. Ghi kết quả vào `BENCHMARK.md` và chốt các mục ⚖.
 
