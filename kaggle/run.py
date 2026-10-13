@@ -27,11 +27,10 @@ for attempt in range(3):
 subprocess.run(["git", "clone", "-q", "--depth", "1", "-b", BRANCH,
                 "https://github.com/daominhkhoi/MinhKhoiDubDub.git", REPO], check=True)
 subprocess.run(["git", "-C", REPO, "log", "--oneline", "-1"], check=True)
-subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"])  # CPU thì báo lỗi, bỏ qua
+subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"], check=True)
 subprocess.run(["bash", f"{REPO}/engines/setup.sh", "asr", "tts"], check=True)
 
 sys.path.insert(0, REPO)
 from dub import bench  # noqa: E402
 
-# shortcut: đang chạy CPU vì hết hạn mức GPU tuần này (làm mới 17/10); có GPU lại thì về large-v3, 5 phút
-bench.main(["--video", VIDEO, "--lang", "en", "--minutes", "3", "--model", "large-v3-turbo"])
+bench.main(["--video", VIDEO, "--lang", "en", "--minutes", "5"])
