@@ -4,6 +4,7 @@ import json
 import time
 
 import soundfile as sf
+import torch
 from huggingface_hub import snapshot_download
 from TTS.tts.configs.xtts_config import XttsConfig
 from TTS.tts.layers.xtts import tokenizer as xtok
@@ -32,7 +33,8 @@ cfg = XttsConfig()
 cfg.load_json(f"{ckpt}/config.json")
 model = Xtts.init_from_config(cfg)
 model.load_checkpoint(cfg, checkpoint_dir=ckpt, use_deepspeed=False)
-model.cuda()
+if torch.cuda.is_available():
+    model.cuda()
 latent, emb = model.get_conditioning_latents(
     audio_path=[a.ref], gpt_cond_len=cfg.gpt_cond_len,
     max_ref_length=cfg.max_ref_len, sound_norm_refs=cfg.sound_norm_refs,

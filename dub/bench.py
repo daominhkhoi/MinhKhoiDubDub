@@ -53,6 +53,8 @@ def run_engine(engine, *args):
     peak, stop = [0], threading.Event()
 
     def poll():
+        if not shutil.which("nvidia-smi"):  # chạy CPU
+            return
         while not stop.is_set():
             r = subprocess.run(["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"],
                                capture_output=True, text=True)

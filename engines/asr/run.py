@@ -4,7 +4,10 @@ import gc
 import json
 import time
 
+import torch
 import whisperx
+
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 ap = argparse.ArgumentParser()
 ap.add_argument("audio")
@@ -16,7 +19,7 @@ a = ap.parse_args()
 
 t = {}
 t0 = time.time()
-model = whisperx.load_model(a.model, "cuda", compute_type="float16", language=a.lang)
+model = whisperx.load_model(a.model, DEVICE, compute_type="float16" if DEVICE == "cuda" else "int8", language=a.lang)
 audio = whisperx.load_audio(a.audio)
 t["load_s"] = round(time.time() - t0, 1)
 
@@ -30,13 +33,13 @@ gc.collect()
 t0 = time.time()
 for attempt in range(3):  # model căn chỉnh tải từ download.pytorch.org, hay bị ngắt kết nối giữa chừng
     try:
-        align_model, meta = whisperx.load_align_model(language_code=lang, device="cuda")
+        align_model, meta = whisperx.load_align_model(language_code=lang, device=DEVICE)
         break
     except OSError:  # URLError, ConnectionResetError đều là OSError
         if attempt == 2:
             raise
         time.sleep(10)
-res = whisperx.align(res["segments"], align_model, meta, audio, "cuda", return_char_alignments=False)
+res = whisperx.align(res["segments"], align_model, meta, audio, DEVICE, return_char_alignments=False)
 t["align_s"] = round(time.time() - t0, 1)
 
 segments = [
@@ -52,4 +55,4 @@ segments = [
 with open(a.out, "w", encoding="utf-8") as f:
     json.dump({"language": lang, "duration": len(audio) / 16000, "timing": t, "segments": segments},
               f, ensure_ascii=False, indent=1)
-print(json.dumps({"language": lang, "segments": len(segments), **t}))
+print(json.dumps({"language": lang, "segments": len(segments), "device": DEVICE, **t}))
